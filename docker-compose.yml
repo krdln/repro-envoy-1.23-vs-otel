@@ -1,0 +1,43 @@
+version: "3.3"
+services:
+
+  proxy:
+    # image: envoyproxy/envoy:v1.22.3
+    image: envoyproxy/envoy:v1.23.1
+    # image: envoyproxy/envoy-dev:latest
+    volumes:
+      - ./config.yaml:/etc/envoy/envoy.yaml
+    networks:
+      mesh:
+        aliases:
+          - upstream
+    expose:
+      - "8080"
+    ports:
+      - "8081:8080"
+
+  upstream:
+    image: nginx:1.23
+    network_mode: service:proxy
+    volumes:
+      - ./html:/usr/share/nginx/html
+
+  load:
+    image: sjourdan/toolbox
+    networks: [mesh]
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["for x in `seq 1 5`; do curl -s http://proxy:8080; sleep 2; done"]
+
+  collector:
+    # image: otel/opentelemetry-collector:0.57.2
+    image: otel/opentelemetry-collector:0.58.0
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel/config.yaml
+    networks:
+      - mesh
+    expose:
+      - "4317"
+    command: ["--config", "/etc/otel/config.yaml"]
+
+networks:
+  mesh: {}

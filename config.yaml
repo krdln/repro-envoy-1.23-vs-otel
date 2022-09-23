@@ -1,0 +1,74 @@
+static_resources:
+  listeners:
+
+  # main listener – forward traffic to µservice
+  - name: main
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 8080
+    filter_chains:
+    - filters:
+      - name: envoy.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          codec_type: auto
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains:
+              - "*"
+              routes:
+              - match:
+                  prefix: "/"
+                route:
+                  cluster: web_service
+          access_log:
+            - name: envoy.access_loggers.open_telemetry
+              typed_config:
+                '@type': type.googleapis.com/envoy.extensions.access_loggers.open_telemetry.v3.OpenTelemetryAccessLogConfig
+                attributes:
+                  values:
+                  - key: http.status_code
+                    value:
+                      string_value: '%RESPONSE_CODE%'
+                body:
+                  string_value: '%REQ(:METHOD)%'
+                common_config:
+                  grpc_service:
+                    google_grpc:
+                      target_uri: collector:4317
+                      stat_prefix: otlp_access_log
+                  log_name: ingress
+                  transport_api_version: V3
+
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+  # µservice we're wrapping listening on localhost on some port
+  - name: web_service
+    connect_timeout: 0.25s
+    type: STATIC
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: some_service
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: 127.0.0.1
+                port_value: 80
+
+# envoy admin panel is accessible on 8001
+admin:
+  access_log_path: "/dev/null"
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 8001
